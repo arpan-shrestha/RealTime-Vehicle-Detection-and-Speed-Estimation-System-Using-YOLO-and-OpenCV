@@ -61,6 +61,9 @@ pixel_to_meter_ratio = 0.05
 fps = int(cap.get(cv2.CAP_PROP_FPS))  
 
 car_count = 0
+bike_count = 0
+train_count = 0
+
 cy1 = 180  # Crossing line for vehicle detection (adjust for your video)
 offset = 8  # Margin for detecting vehicles crossing the line
 
@@ -74,36 +77,51 @@ while True:
     results = model.predict(frame)
     detections = results[0].boxes.data
 
-    cars = []
+    objects = []
 
     for row in detections:
         x1, y1, x2, y2 = map(int, row[:4])
-        c = row[5]
-        if c == 2:  
-            cars.append([x1, y1, x2, y2])
+        class_index = int(row[5])  # Get the class index
+        if class_index in [2, 3, 7]:  # Car (2), Motorcycle/Bike (3), Train (7)
+            objects.append([x1, y1, x2, y2, class_index])
 
-    car_boxes = tracker.update(cars)
+    object_boxes = tracker.update([[x1, y1, x2 - x1, y2 - y1] for x1, y1, x2, y2, _ in objects])
 
     cv2.line(frame, (1, cy1), (1018, cy1), (0, 255, 0), 2)
 
-    for bbox in car_boxes:
-        x1, y1, x2, y2, vehicle_id = bbox
-        cx = (x1 + x2) // 2  
-        cy = (y1 + y2) // 2  
+    for i, bbox in enumerate(object_boxes):
+        x1, y1, w, h, vehicle_id = bbox
+        cx = (x1 + x1 + w) // 2  
+        cy = (y1 + y1 + h) // 2  
+
+        class_index = objects[i][4]
+        if class_index == 2:
+            label = "Car"
+        elif class_index == 3:
+            label = "Bike"
+        elif class_index == 7:
+            label = "Train"
+        else:
+            label = "Unknown"
 
         if (cy > cy1 - offset) and (cy < cy1 + offset):
-            car_count += 1
+            if class_index == 2:
+                car_count += 1
+            elif class_index == 3:
+                bike_count += 1
+            elif class_index == 7:
+                train_count += 1
 
         if vehicle_id in tracker.last_positions:
             last_position = tracker.last_positions[vehicle_id]
             current_position = (cx, cy)
             speed = calculate_speed(last_position, current_position, fps, pixel_to_meter_ratio)
-            cv2.putText(frame, f"Speed: {speed:.2f} km/h", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            cv2.putText(frame, f"{label} Speed: {speed:.2f} km/h", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
         tracker.last_positions[vehicle_id] = (cx, cy)
 
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2)
-        cvzone.putTextRect(frame, f"ID: {vehicle_id}", (x1, y1), 1, 1)
+        cv2.rectangle(frame, (x1, y1), (x1 + w, y1 + h), (255, 0, 255), 2)
+        cvzone.putTextRect(frame, f"{label} ID: {vehicle_id}", (x1, y1), 1, 1)
 
     cv2.imshow("Vehicle Detection", frame)
 
@@ -112,6 +130,8 @@ while True:
         break
 
 print(f'Total car count: {car_count}')
+print(f'Total bike count: {bike_count}')
+print(f'Total train count: {train_count}')
 
 cap.release()
 cv2.destroyAllWindows()
